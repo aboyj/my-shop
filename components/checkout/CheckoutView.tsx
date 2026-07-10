@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { loadStripe } from '@stripe/js';
+import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { CheckoutSummary } from './CheckoutSummary';
 import { CheckoutForm } from './CheckoutForm';
