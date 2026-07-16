@@ -5,19 +5,20 @@ import { prisma } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id || session.user.role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
-    const category = searchParams.get('category');
-    const search = searchParams.get('search');
-    const sortBy = searchParams.get('sort') || 'newest';
+    const search = searchParams.get('search') || '';
+    const status = searchParams.get('status') || 'all';
     const page = parseInt(searchParams.get('page') || '1');
-    const limit = 12;
+    const limit = 20;
     const skip = (page - 1) * limit;
 
-    const where: any = { status: 'active' };
-
-    if (category) {
-      where.category = { slug: category };
-    }
+    const where: any = {};
 
     if (search) {
       where.OR = [
@@ -26,57 +27,26 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    const orderBy: any = {};
-    switch (sortBy) {
-      case 'price-low':
-        orderBy.price = 'asc';
-        break;
-      case 'price-high':
-        orderBy.price = 'desc';
-        break;
-      case 'popular':
-        orderBy.sales = 'desc';
-        break;
-      case 'newest':
-      default:
-        orderBy.createdAt = 'desc';
+    if (status !== 'all') {
+      where.status = status;
     }
 
     const [products, total] = await Promise.all([
       prisma.product.findMany({
         where,
-        orderBy,
+        include: {
+          category: true,
+          images: true,
+        },
+        orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
-        include: {
-          images: true,
-          category: true,
-          reviews: {
-            select: { rating: true },
-          },
-          _count: {
-            select: { reviews: true },
-          },
-        },
       }),
       prisma.product.count({ where }),
     ]);
 
-    const productsWithRating = products.map((product) => {
-      const avgRating =
-        product.reviews.length > 0
-          ? product.reviews.reduce((sum, r) => sum + r.rating, 0) / product.reviews.length
-          : 0;
-
-      return {
-        ...product,
-        avgRating: Math.round(avgRating * 10) / 10,
-        reviewCount: product._count.reviews,
-      };
-    });
-
     return NextResponse.json({
-      products: productsWithRating,
+      data: products,
       pagination: {
         page,
         limit,
@@ -94,33 +64,36 @@ export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session?.user?.id || session.user.role !== 'seller') {
+    if (!session?.user?.id || session.user.role !== 'admin') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
-    const { title, description, price, category, images, tags } = body;
+    const { title, description, price, categoryId, status, images } = body;
+
+    if (!title || !description || !price || !categoryId) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    const slug = title.toLowerCase().replace(/\s+/g, '-');
 
     const product = await prisma.product.create({
       data: {
         title,
         description,
         price,
-        slug: title.toLowerCase().replace(/\s+/g, '-'),
-        categoryId: category,
+        slug,
+        categoryId,
+        status: status || 'draft',
         authorId: session.user.id,
-        status: 'active',
         images: {
-          create: images.map((url: string) => ({ url })),
-        },
-        tags: {
-          connectOrCreate: tags.map((name: string) => ({
-            where: { name },
-            create: { name },
-          })),
+          create: images?.map((url: string) => ({ url })) || [],
         },
       },
-      include: { images: true, tags: true },
+      include: {
+        category: true,
+        images: true,
+      },
     });
 
     return NextResponse.json(product, { status: 201 });

@@ -15,7 +15,7 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
 
   // Find order by Stripe payment intent ID
   const order = await prisma.order.findFirst({
-    where: { stripePaymentIntentId: paymentIntent.id },
+    where: { paymentIntentId: paymentIntent.id },
   });
 
   if (!order) {
@@ -37,7 +37,7 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
 
 async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
   const order = await prisma.order.findFirst({
-    where: { stripePaymentIntentId: paymentIntent.id },
+    where: { paymentIntentId: paymentIntent.id },
   });
 
   if (!order) return;

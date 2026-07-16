@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
 export async function GET(
@@ -7,17 +9,21 @@ export async function GET(
 ) {
   const { id } = await params;
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id || session.user.role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const product = await prisma.product.findUnique({
       where: { id },
       include: {
-        images: true,
         category: true,
+        images: true,
         tags: true,
         reviews: {
-          include: { user: { select: { name: true, image: true } } },
-          orderBy: { createdAt: 'desc' },
+          select: { rating: true },
         },
-        _count: { select: { reviews: true } },
       },
     });
 
@@ -25,16 +31,7 @@ export async function GET(
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
-    const avgRating =
-      product.reviews.length > 0
-        ? product.reviews.reduce((sum, r) => sum + r.rating, 0) / product.reviews.length
-        : 0;
-
-    return NextResponse.json({
-      ...product,
-      avgRating: Math.round(avgRating * 10) / 10,
-      reviewCount: product._count.reviews,
-    });
+    return NextResponse.json(product);
   } catch (error) {
     console.error('Error fetching product:', error);
     return NextResponse.json({ error: 'Failed to fetch product' }, { status: 500 });
@@ -47,8 +44,16 @@ export async function PUT(
 ) {
   const { id } = await params;
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id || session.user.role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await request.json();
-    const { title, description, price, category, images, tags } = body;
+    const { title, description, price, categoryId, status, images } = body;
+
+    const slug = title?.toLowerCase().replace(/\s+/g, '-');
 
     const product = await prisma.product.update({
       where: { id },
@@ -56,20 +61,20 @@ export async function PUT(
         title,
         description,
         price,
-        categoryId: category,
-        images: {
-          deleteMany: {},
-          create: images.map((url: string) => ({ url })),
-        },
-        tags: {
-          set: [],
-          connectOrCreate: tags.map((name: string) => ({
-            where: { name },
-            create: { name },
-          })),
-        },
+        slug,
+        categoryId,
+        status,
+        images: images
+          ? {
+              deleteMany: {},
+              create: images.map((url: string) => ({ url })),
+            }
+          : undefined,
       },
-      include: { images: true, tags: true },
+      include: {
+        category: true,
+        images: true,
+      },
     });
 
     return NextResponse.json(product);
@@ -85,11 +90,17 @@ export async function DELETE(
 ) {
   const { id } = await params;
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id || session.user.role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     await prisma.product.delete({
       where: { id },
     });
 
-    return NextResponse.json({ message: 'Product deleted' });
+    return NextResponse.json({ message: 'Product deleted successfully' });
   } catch (error) {
     console.error('Error deleting product:', error);
     return NextResponse.json({ error: 'Failed to delete product' }, { status: 500 });

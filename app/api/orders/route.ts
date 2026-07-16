@@ -41,15 +41,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { items, total, paymentMethodId, shippingAddress } = await request.json();
+    const { items, subtotal, paymentMethodId, shippingAddress } = await request.json();
 
     if (!items || !items.length) {
       return NextResponse.json({ error: 'Empty cart' }, { status: 400 });
     }
 
+    const tax = Math.round(subtotal * 0.08 * 100) / 100;
+    const totalAmount = subtotal + tax;
+
     // Create payment intent
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(total * 1.08), // Add 8% tax
+      amount: Math.round(totalAmount * 100),
       currency: 'usd',
       payment_method: paymentMethodId,
       metadata: {
@@ -62,8 +65,10 @@ export async function POST(request: NextRequest) {
       data: {
         userId: session.user.id,
         status: 'pending',
-        paymentStatus: 'pending',
-        total: Math.round(total * 1.08),
+        paymentStatus: 'unpaid',
+        subtotal,
+        tax,
+        totalAmount,
         items: {
           create: items.map((item: any) => ({
             productId: item.productId,
@@ -71,8 +76,12 @@ export async function POST(request: NextRequest) {
             price: item.product.price,
           })),
         },
-        shippingAddress: JSON.stringify(shippingAddress),
-        stripePaymentIntentId: paymentIntent.id,
+        shippingAddress: shippingAddress.street,
+        shippingCity: shippingAddress.city,
+        shippingState: shippingAddress.state,
+        shippingZip: shippingAddress.zip,
+        shippingCountry: shippingAddress.country,
+        paymentIntentId: paymentIntent.id,
       },
       include: {
         items: {
