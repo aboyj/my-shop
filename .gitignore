@@ -45,3 +45,4 @@ prisma/dev.db-journal
 # OS
 Thumbs.db
 .env.production
+# Deployment ready
