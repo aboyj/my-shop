@@ -2,11 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import Stripe from 'stripe';
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16' as any,
-});
+import crypto from 'crypto';
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,7 +37,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { items, subtotal, paymentMethodId, shippingAddress } = await request.json();
+    const { items, subtotal, shippingAddress } = await request.json();
 
     if (!items || !items.length) {
       return NextResponse.json({ error: 'Empty cart' }, { status: 400 });
@@ -49,16 +45,6 @@ export async function POST(request: NextRequest) {
 
     const tax = Math.round(subtotal * 0.08 * 100) / 100;
     const totalAmount = subtotal + tax;
-
-    // Create payment intent
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(totalAmount * 100),
-      currency: 'usd',
-      payment_method: paymentMethodId,
-      metadata: {
-        userId: session.user.id,
-      },
-    });
 
     // Create order in database
     const order = await prisma.order.create({
@@ -81,7 +67,7 @@ export async function POST(request: NextRequest) {
         shippingState: shippingAddress.state,
         shippingZip: shippingAddress.zip,
         shippingCountry: shippingAddress.country,
-        paymentIntentId: paymentIntent.id,
+        paymentIntentId: order.id,
       },
       include: {
         items: {
@@ -90,6 +76,9 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Create Razorpay order
+    const razorpayOrderId = `order_${order.id}_${Date.now()}`;
+
     // Clear user's cart
     await prisma.cartItem.deleteMany({
       where: { userId: session.user.id },
@@ -97,8 +86,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       orderId: order.id,
-      clientSecret: paymentIntent.client_secret,
+      razorpayOrderId,
+      amount: Math.round(totalAmount * 100),
+      currency: 'INR',
       order,
+      keyId: process.env.RAZORPAY_KEY_ID,
     });
   } catch (error) {
     console.error('Error creating order:', error);
