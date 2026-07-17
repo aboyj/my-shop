@@ -1,7 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import crypto from 'crypto';
-import { sendOrderConfirmationEmail } from '@/lib/email';
+import { sendEmail, emailTemplates } from '@/lib/email';
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,7 +45,15 @@ export async function POST(request: NextRequest) {
 
     // Send confirmation email
     if (order.user?.email) {
-      await sendOrderConfirmationEmail(order.user.email, order);
+      const emailTemplate = emailTemplates.orderConfirmation(
+        order.user.name || 'Customer',
+        order.id,
+        order.totalAmount
+      );
+      await sendEmail({
+        to: order.user.email,
+        ...emailTemplate,
+      });
     }
 
     return NextResponse.json({ success: true, orderId });
